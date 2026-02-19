@@ -1,0 +1,27 @@
+{
+  "api_key_env": "ANTHROPIC_API_KEY",
+  "max_tokens": 4096,
+  "temperature": 1.0,
+  "top_p": null,
+  "top_k": null,
+  "system": null,
+  "stop_sequences": null,
+  "models": {
+    "opus": "claude-opus-4-6",
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5-20251001"
+  },
+  "web_search": true,
+  "web_search_max_uses": 3,
+  "ollama": {
+    "base_url": "http://192.168.5.40:11434",
+    "model": "gpt-oss:120b",
+    "temperature": 0.7,
+    "top_p": null,
+    "top_k": null,
+    "num_predict": null,
+    "repeat_penalty": null
+  },
+  "output_dir": "output",
+  "open_html": true
+}
