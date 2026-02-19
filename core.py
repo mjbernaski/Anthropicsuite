@@ -10,6 +10,8 @@ import anthropic
 import httpx
 import markdown
 
+import re
+
 BASE_DIR = Path(__file__).parent
 
 
@@ -21,6 +23,35 @@ def get_output_dir(config: dict) -> Path:
     d = BASE_DIR / config["output_dir"]
     d.mkdir(exist_ok=True)
     return d
+
+
+MODEL_ORDER = ["opus", "sonnet", "haiku"]
+
+
+def parse_model_flags(raw: str) -> tuple[str, dict[str, bool]]:
+    match = re.search(r'(?:^|\s)([+\-]{3})(?:\s|$)', raw)
+    if match:
+        flags_str = match.group(1)
+        prompt = raw[:match.start()] + raw[match.end():]
+        prompt = prompt.strip()
+        flags = {name: (ch == "+") for name, ch in zip(MODEL_ORDER, flags_str)}
+        enabled = [n for n, v in flags.items() if v]
+        status(f"model flags: {flags_str} → {', '.join(enabled) or 'none'}")
+        return prompt, flags
+    return raw, {name: True for name in MODEL_ORDER}
+
+
+def resolve_prompt(raw: str) -> str:
+    def replace_file_ref(match):
+        filepath = Path(match.group(1)).expanduser()
+        if filepath.exists():
+            content = filepath.read_text()
+            status(f"attached {filepath} ({len(content)} chars)")
+            return f"\n--- FILE: {filepath.name} ---\n{content}\n--- END FILE ---\n"
+        status(f"file not found: {filepath}")
+        return match.group(0)
+
+    return re.sub(r"@(\S+)", replace_file_ref, raw)
 
 
 def status(msg: str):
@@ -92,22 +123,31 @@ async def call_ollama(config: dict, prompt: str, responses: dict) -> dict:
     base_url = ollama_cfg["base_url"]
     model = ollama_cfg["model"]
 
+    active = [n for n in MODEL_ORDER if n in responses]
+    names_str = ", ".join(n.capitalize() for n in active)
+
     comparison_prompt = (
-        f"The following prompt was sent to three AI models (Opus, Sonnet, Haiku):\n\n"
+        f"The following prompt was sent to {len(active)} AI model(s) ({names_str}):\n\n"
         f"PROMPT: {prompt}\n\n"
     )
-    for name in ["opus", "sonnet", "haiku"]:
-        r = responses.get(name, {})
+    for name in active:
+        r = responses[name]
         if "error" in r:
             comparison_prompt += f"--- {name.upper()} ---\n[ERROR: {r['error']}]\n\n"
         else:
             comparison_prompt += f"--- {name.upper()} ---\n{r['response_text']}\n\n"
 
-    comparison_prompt += (
-        "Compare and contrast these three responses. Identify key differences in "
-        "depth, accuracy, style, and completeness. Note any unique insights each model provided "
-        "and any errors or omissions. Be concise but thorough."
-    )
+    if len(active) == 1:
+        comparison_prompt += (
+            "Summarize and critique this response. Evaluate its depth, accuracy, "
+            "completeness, and note any errors or omissions. Be concise but thorough."
+        )
+    else:
+        comparison_prompt += (
+            "Compare and contrast these responses. Identify key differences in "
+            "depth, accuracy, style, and completeness. Note any unique insights each model provided "
+            "and any errors or omissions. Be concise but thorough."
+        )
 
     status(f"ollama ({model}) — sending comparison request...")
     start = time.perf_counter()
@@ -140,13 +180,16 @@ async def call_ollama(config: dict, prompt: str, responses: dict) -> dict:
 
 import asyncio
 
-async def run_all(config: dict, prompt: str) -> dict:
+async def run_all(config: dict, prompt: str, model_flags: dict[str, bool] | None = None) -> dict:
     client = anthropic.AsyncAnthropic(api_key=os.environ.get(config["api_key_env"]))
     models = config["models"]
+    if model_flags is None:
+        model_flags = {name: True for name in models}
 
     tasks = {
         name: call_model(client, config, model_id, name, prompt)
         for name, model_id in models.items()
+        if model_flags.get(name, True)
     }
 
     results = {}
@@ -169,6 +212,7 @@ async def run_all(config: dict, prompt: str) -> dict:
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "prompt": prompt,
+        "model_flags": model_flags,
         "config": {
             k: config.get(k) for k in
             ["max_tokens", "temperature", "top_p", "top_k", "system", "stop_sequences", "web_search"]
@@ -188,9 +232,12 @@ def md(text: str) -> str:
 
 def build_html(data: dict) -> str:
     prompt_escaped = esc(data["prompt"])
+    flags = data.get("model_flags", {name: True for name in MODEL_ORDER})
+    active_models = [n for n in MODEL_ORDER if flags.get(n, False)]
+    ncols = len(active_models) or 1
 
     cards = []
-    for name in ["opus", "sonnet", "haiku"]:
+    for name in active_models:
         r = data["results"].get(name, {})
         if "error" in r:
             body = f'<p class="error">{esc(r["error"])}</p>'
@@ -254,7 +301,7 @@ body {{ font-family: system-ui, -apple-system, sans-serif; background: #0f0f0f; 
 .prompt {{ background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 24px; white-space: pre-wrap; font-size: 14px; }}
 .prompt-label {{ color: #888; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }}
 .ts {{ color: #666; font-size: 12px; margin-bottom: 16px; }}
-.grid {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }}
+.grid {{ display: grid; grid-template-columns: repeat({ncols}, 1fr); gap: 16px; margin-bottom: 24px; }}
 .col {{ background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 16px; overflow: auto; }}
 .col h2 {{ font-size: 16px; margin-bottom: 8px; color: #c9a0ff; }}
 .meta {{ font-size: 11px; color: #777; margin-bottom: 12px; line-height: 1.6; }}

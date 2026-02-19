@@ -2,7 +2,7 @@
 import asyncio
 import sys
 
-from core import load_config, run_all, save_and_open
+from core import load_config, parse_model_flags, resolve_prompt, run_all, save_and_open
 
 
 async def main():
@@ -11,10 +11,13 @@ async def main():
         sys.exit(1)
 
     config = load_config()
-    prompt = " ".join(sys.argv[1:])
-    print(f"Running Anthropic Suite ({len(config['models'])} models + Ollama comparison):")
+    raw = " ".join(sys.argv[1:])
+    prompt, model_flags = parse_model_flags(raw)
+    prompt = resolve_prompt(prompt)
+    active = [n for n, v in model_flags.items() if v]
+    print(f"Running Anthropic Suite ({', '.join(active)} + Ollama comparison):")
 
-    data = await run_all(config, prompt)
+    data = await run_all(config, prompt, model_flags)
     save_and_open(config, data)
     print("\nDone.")
 
