@@ -135,7 +135,7 @@ async def main():
         round_num += 1
         print(f"\n--- Round {round_num} ---")
         print(f"  Prompt: {prompt[:80]}{'...' if len(prompt) > 80 else ''}")
-        print(f"  Sending to {', '.join(active)} + Ollama comparison...\n")
+        print(f"  Sending to {', '.join(active)}...\n")
 
         data = await run_all(config, prompt, model_flags)
         save_and_open(config, data)
