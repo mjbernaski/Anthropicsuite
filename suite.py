@@ -12,7 +12,7 @@ async def main():
 
     config = load_config()
     raw = " ".join(sys.argv[1:])
-    prompt, model_flags = parse_model_flags(raw)
+    prompt, model_flags = parse_model_flags(raw, config.get("default_flags", "++++"))
     prompt = resolve_prompt(prompt)
     active = [n for n, v in model_flags.items() if v]
     print(f"Running Anthropic Suite ({', '.join(active)} + Ollama comparison):")

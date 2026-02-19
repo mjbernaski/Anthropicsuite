@@ -19,6 +19,10 @@ def load_config() -> dict:
     return json.loads((BASE_DIR / "config.json").read_text())
 
 
+def save_config(config: dict):
+    (BASE_DIR / "config.json").write_text(json.dumps(config, indent=2) + "\n")
+
+
 def get_output_dir(config: dict) -> Path:
     d = BASE_DIR / config["output_dir"]
     d.mkdir(exist_ok=True)
@@ -28,17 +32,34 @@ def get_output_dir(config: dict) -> Path:
 MODEL_ORDER = ["opus", "sonnet", "haiku"]
 
 
-def parse_model_flags(raw: str) -> tuple[str, dict[str, bool]]:
-    match = re.search(r'(?:^|\s)([+\-]{3})(?:\s|$)', raw)
+FLAG_ORDER = ["opus", "sonnet", "haiku", "ollama"]
+
+
+def flags_from_str(flags_str: str) -> dict[str, bool]:
+    flags = {name: (ch == "+") for name, ch in zip(FLAG_ORDER, flags_str)}
+    if len(flags_str) == 3:
+        flags["ollama"] = True
+    return flags
+
+
+def flags_to_str(flags: dict[str, bool]) -> str:
+    return "".join("+" if flags.get(n, True) else "-" for n in FLAG_ORDER)
+
+
+def parse_model_flags(raw: str, default_flags: str = "++++") -> tuple[str, dict[str, bool]]:
+    match = re.search(r'(?:^|\s)([+\-]{3,4})(?:\s|$)', raw)
     if match:
         flags_str = match.group(1)
         prompt = raw[:match.start()] + raw[match.end():]
         prompt = prompt.strip()
-        flags = {name: (ch == "+") for name, ch in zip(MODEL_ORDER, flags_str)}
+        flags = flags_from_str(flags_str)
         enabled = [n for n, v in flags.items() if v]
         status(f"model flags: {flags_str} → {', '.join(enabled) or 'none'}")
         return prompt, flags
-    return raw, {name: True for name in MODEL_ORDER}
+    flags = flags_from_str(default_flags)
+    enabled = [n for n, v in flags.items() if v]
+    status(f"model flags: {default_flags} (default) → {', '.join(enabled)}")
+    return raw, flags
 
 
 def resolve_prompt(raw: str) -> str:
@@ -202,7 +223,7 @@ async def run_all(config: dict, prompt: str, model_flags: dict[str, bool] | None
             results[name] = result
 
     comparison = None
-    if config.get("ollama"):
+    if config.get("ollama") and model_flags.get("ollama", True):
         try:
             comparison = await call_ollama(config, prompt, results)
         except Exception as e:

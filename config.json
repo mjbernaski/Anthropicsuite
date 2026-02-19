@@ -22,6 +22,7 @@
     "num_predict": null,
     "repeat_penalty": null
   },
+  "default_flags": "--+-",
   "output_dir": "output",
   "open_html": true
 }

@@ -2,14 +2,18 @@
 import asyncio
 import glob
 import os
+import re
 import readline
 import sys
 
-from core import load_config, parse_model_flags, resolve_prompt, run_all, save_and_open, status
+from core import (
+    FLAG_ORDER, flags_from_str, flags_to_str, load_config, parse_model_flags,
+    resolve_prompt, run_all, save_and_open, save_config, status,
+)
 
 
 def setup_completer():
-    commands = ["/quit", "/q", "/exit", "/config", "/reload"]
+    commands = ["/quit", "/q", "/exit", "/config", "/reload", "/set"]
     _cache = {"matches": [], "prefix": None}
 
     def completer(text, state):
@@ -56,6 +60,7 @@ BANNER = """
 ║  Use @path/to/file.txt to attach files.  ║
 ║  Commands:                               ║
 ║    /quit or /q   — exit                  ║
+║    /set ++-+     — set default flags      ║
 ║    /config       — show current config   ║
 ║    /reload       — reload config.json    ║
 ╚══════════════════════════════════════════╝
@@ -73,6 +78,9 @@ def show_config(config: dict):
     print(f"    models:        {', '.join(config['models'].keys())}")
     ollama = config.get("ollama", {})
     print(f"    ollama:        {ollama.get('model', 'disabled')} @ {ollama.get('base_url', 'n/a')}")
+    df = config.get("default_flags", "++++")
+    labels = [f"{n}={'on' if ch == '+' else 'off'}" for n, ch in zip(FLAG_ORDER, df)]
+    print(f"    default_flags: {df} ({', '.join(labels)})")
     print(f"    open_html:     {config.get('open_html', True)}")
     print()
 
@@ -107,7 +115,20 @@ async def main():
             print("  Config reloaded.")
             continue
 
-        prompt, model_flags = parse_model_flags(prompt)
+        if prompt.lower().startswith("/set"):
+            parts = prompt.split()
+            if len(parts) == 2 and re.match(r'^[+\-]{3,4}$', parts[1]):
+                flags_str = parts[1] if len(parts[1]) == 4 else parts[1] + "+"
+                config["default_flags"] = flags_str
+                save_config(config)
+                flags = flags_from_str(flags_str)
+                enabled = [n for n, v in flags.items() if v]
+                print(f"  Default flags saved: {flags_str} → {', '.join(enabled)}")
+            else:
+                print("  Usage: /set ++-+  (opus, sonnet, haiku, ollama)")
+            continue
+
+        prompt, model_flags = parse_model_flags(prompt, config.get("default_flags", "++++"))
         prompt = resolve_prompt(prompt)
         active = [n for n, v in model_flags.items() if v]
 
